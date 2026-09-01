@@ -1,110 +1,109 @@
 # kfs: A Minimal Rust Kernel for i386
 
-This project is a minimal operating system kernel written in Rust and assembly for the i386 architecture. It demonstrates how to build a simple kernel that boots using the Multiboot2 specification and displays a message on the VGA text buffer.
+A minimal operating system kernel written in Rust and assembly for the i386
+architecture. It boots via the Multiboot2 specification using GRUB and provides
+a VGA text-mode terminal with keyboard input, colors, and multiple virtual
+screens.
 
 ## Features
 
-- **Rust-based kernel**: The kernel is written in Rust with `#![no_std]` and `#![no_main]` attributes.
-- **Assembly bootloader**: The bootloader is implemented in NASM assembly and adheres to the Multiboot2 specification.
-- **Custom linker script**: A custom `linker.ld` script is used to define memory layout and entry points.
-- **VGA text output**: The kernel writes directly to the VGA text buffer to display output.
-- **ISO generation**: The kernel is packaged into a bootable ISO using GRUB.
+### Base
+- **Rust kernel** with `#![no_std]` / `#![no_main]`.
+- **Assembly boot code** (NASM), Multiboot2-compliant, sets up the stack and
+  zeroes `.bss` before calling into Rust.
+- **Custom linker script** (`linker.ld`) defining the memory layout and entry point.
+- **VGA text output** written directly to the `0xB8000` text buffer, exposed
+  through Rust's formatting macros (`print!` / `println!`).
+- **Bootable ISO** generated with GRUB.
+
+### Bonus
+- **Scrolling** text output.
+- **Hardware cursor** tracking the write position (VGA CRTC).
+- **Color support**, changeable at runtime (foreground and background).
+- **PS/2 keyboard** (polled) with a US-QWERTY layout, handling Shift, Caps Lock,
+  and Ctrl.
+- **Three virtual screens**, each with independent content, cursor, and color,
+  switchable via keyboard shortcuts.
+
+## Controls
+
+| Shortcut              | Action                          |
+| --------------------- | ------------------------------- |
+| Ctrl + F1 / F2 / F3   | Switch to screen 1 / 2 / 3      |
+| Ctrl + 1..8           | Set foreground color            |
+| Ctrl + Shift + 1..8   | Set background color            |
 
 ## Project Structure
 
 ```
 kfs/
-├── .gitignore
-├── Cargo.lock
-├── Cargo.toml
-├── i386-unknown-none.json
-├── linker.ld
-├── Makefile
-├── README.MD
-├── rust-toolchain.toml
 ├── .cargo/
-│   └── config.toml
+│   └── config.toml          # build-std / target flags
 ├── iso/
 │   └── boot/
 │       └── grub/
 │           └── grub.cfg
-└── src/
-    ├── asm/
-    │   ├── boot.asm
-    │   └── multiboot.asm
-    └── rust/
-        └── lib.rs
+├── src/
+│   ├── asm/
+│   │   ├── boot.asm         # stack setup, .bss zeroing, calls kernel_main
+│   │   └── multiboot.asm    # Multiboot2 header
+│   └── rust/
+│       ├── lib.rs           # kernel entry point, main loop
+│       ├── vga_buffer.rs    # VGA driver, screens, cursor, colors
+│       ├── keyboard.rs      # PS/2 scancode handling, layout, modifiers
+│       ├── port.rs          # inb / outb I/O port primitives
+│       └── f16_shim.rs      # soft-float shim
+├── Cargo.toml
+├── i386-unknown-none.json   # custom bare-metal target
+├── linker.ld
+├── Makefile
+├── rust-toolchain.toml      # pinned nightly + components
+└── README.md
 ```
-
-- **`src/rust/lib.rs`**: The Rust kernel entry point.
-- **`src/asm/boot.asm`**: The assembly bootloader that calls the kernel.
-- **`src/asm/multiboot.asm`**: Multiboot2 header for GRUB compatibility.
-- **`linker.ld`**: Defines the memory layout and entry point.
-- **`Makefile`**: Automates the build, clean, and run processes.
-- **`iso/boot/grub/grub.cfg`**: GRUB configuration for booting the kernel.
 
 ## Prerequisites
 
-- **Rust nightly toolchain**: Install using `rustup` and ensure the `rust-toolchain.toml` is respected.
-- **NASM**: For assembling the bootloader.
-- **QEMU**: For running the kernel in a virtualized environment.
+- **Rust nightly** (pinned in `rust-toolchain.toml`) with the `rust-src` and
+  `llvm-tools-preview` components. The build recompiles `core`/`alloc` via
+  `-Zbuild-std` against the custom `i386-unknown-none.json` target; the required
+  flags live in `.cargo/config.toml`.
+- **NASM** — assembles the boot code.
+- **GRUB** (`grub-mkrescue`) and **xorriso** — build the bootable ISO.
+- **KVM/QEMU** — runs the kernel.
+
+On a machine without GRUB/xorriso, `make install_requirements` builds them from
+source into `~/.local`.
 
 ## Building and Running
 
-1. **Build the kernel**:
+```sh
+make            # build kernel.bin (release)
+make iso        # package into kfs.iso
+make run        # boot in KVM
+make clean      # remove build artifacts
+make fclean     # clean + cargo clean
+make re         # fclean + build
+```
 
-   ```sh
-   make all
-   ```
+### Debug vs Release
 
-2. **Create a bootable ISO**:
+```sh
+make DEBUG=1        # unoptimized build with debuginfo
+make DEBUG=1 run    # rebuild in debug and boot
+```
 
-   ```sh
-   make iso
-   ```
-
-3. **Run the kernel**:
-
-   ```sh
-   make run
-   ```
-
-4. **Clean the build artifacts**:
-
-   ```sh
-   make clean
-   ```
-
-5. **Fully clean the project**:
-   ```sh
-   make fclean
-   ```
-
-## Debug vs Release builds
-
-The `Makefile` supports toggling between release and debug profiles using the `DEBUG` variable.
-
-- Default (release): optimized build
-   ```sh
-   make                 # builds with `cargo build --release`
-   make iso             # packages current build into an ISO
-   ```
-- Debug: unoptimized with debuginfo
-   ```sh
-   make DEBUG=1         # builds with `cargo build`
-   make DEBUG=1 iso     # ensures the kernel is rebuilt in debug before creating the ISO
-   ```
-
-Under the hood, this switches the Rust build profile and links the appropriate
+This switches the Rust profile and links the matching
 `target/i386-unknown-none/<profile>/libkfs.a` into `kernel.bin`.
 
 ## How It Works
 
-1. **Bootloader**: The `boot.asm` file initializes the system and calls the `kernel_main` function in Rust.
-2. **Kernel**: The `kernel_main` function clears the VGA buffer and writes "42" in the center of the screen.
-3. **GRUB**: The Multiboot2 header in `multiboot.asm` ensures compatibility with GRUB, which loads the kernel.
+1. **GRUB** finds the Multiboot2 header in `multiboot.asm` and loads the kernel
+   into protected mode.
+2. **`boot.asm`** sets up a stack, zeroes `.bss`, and calls `kernel_main`.
+3. **`kernel_main`** clears the screen and enters a loop polling the keyboard,
+   printing typed characters and handling screen/color shortcuts.
 
 ## Acknowledgments
 
 - Inspired by the [Writing an OS in Rust](https://os.phil-opp.com/) series.
-- Uses GRUB for bootloading and QEMU for virtualization.
+- Uses GRUB for bootloading and KVM/QEMU for virtualization.
