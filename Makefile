@@ -10,8 +10,9 @@ ASM_OBJ 	:= $(ASM_SRC:.asm=.o)
 DEBUG ?=
 BUILD_PROFILE := $(if $(DEBUG),debug,release)
 CARGO_FLAGS   := $(if $(DEBUG),,--release)
+CARGO_TARGET_DIR ?= target
 
-RUST_LIB	:= target/i386-unknown-none/$(BUILD_PROFILE)/libkfs.a
+RUST_LIB := $(CARGO_TARGET_DIR)/i386-unknown-none/$(BUILD_PROFILE)/libkfs.a
 
 KERNEL_BIN  := kernel.bin
 ISO_DIR     := iso
