@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 mod vga_buffer;
 mod f16_shim;
@@ -8,6 +9,7 @@ mod keyboard;
 mod gdt;
 mod stack;
 mod shell;
+mod idt;
 
 use core::panic::PanicInfo;
 
@@ -20,7 +22,12 @@ fn panic(info: &PanicInfo) -> ! {
 #[unsafe(no_mangle)]
 pub extern "C" fn kernel_main() -> ! {
 	gdt::init();
+	idt::init();
     vga_buffer::WRITER.lock().clear_screen();
+	println!("IDT loaded");
+	// deliberately trigger a breakpoint to prove the handler runs
+    unsafe { core::arch::asm!("int3"); }
+    println!("resumed after breakpoint");
 	let mut shell = shell::Shell::new();
     shell.prompt();
     loop {
