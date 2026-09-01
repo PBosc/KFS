@@ -2,8 +2,8 @@
 
 A minimal operating system kernel written in Rust and assembly for the i386
 architecture. It boots via the Multiboot2 specification using GRUB and provides
-a VGA text-mode terminal with keyboard input, colors, and multiple virtual
-screens.
+a VGA text-mode terminal with keyboard input, colors, multiple virtual screens,
+a Global Descriptor Table, and a small debug shell.
 
 ## Features
 
@@ -16,14 +16,24 @@ screens.
   through Rust's formatting macros (`print!` / `println!`).
 - **Bootable ISO** generated with GRUB.
 
+### KFS_2 — GDT & Stack
+- **Global Descriptor Table** with six flat segments (kernel code/data/stack,
+  user code/data/stack) plus the required null descriptor, placed at physical
+  address `0x00000800` and loaded via `lgdt`.
+- **Segment reload** after loading the GDT, including a far jump to reload `CS`
+  (implemented via a far return, `push`/`retf`).
+- **Stack-dump tool** printing kernel stack memory as a human-readable hex dump.
+
 ### Bonus
 - **Scrolling** text output.
 - **Hardware cursor** tracking the write position (VGA CRTC).
 - **Color support**, changeable at runtime (foreground and background).
 - **PS/2 keyboard** (polled) with a US-QWERTY layout, handling Shift, Caps Lock,
-  and Ctrl.
+  Ctrl, and backspace.
 - **Three virtual screens**, each with independent content, cursor, and color,
   switchable via keyboard shortcuts.
+- **Debug shell** with line editing and the commands `help`, `stack`, `halt`,
+  and `reboot`.
 
 ## Controls
 
@@ -32,6 +42,15 @@ screens.
 | Ctrl + F1 / F2 / F3   | Switch to screen 1 / 2 / 3      |
 | Ctrl + 1..8           | Set foreground color            |
 | Ctrl + Shift + 1..8   | Set background color            |
+
+## Shell commands
+
+| Command  | Action                                   |
+| -------- | ---------------------------------------- |
+| `help`   | List available commands                  |
+| `stack`  | Print a hex dump of the kernel stack     |
+| `halt`   | Disable interrupts and halt the CPU      |
+| `reboot` | Reboot via the 8042 keyboard controller  |
 
 ## Project Structure
 
@@ -52,6 +71,9 @@ kfs/
 │       ├── vga_buffer.rs    # VGA driver, screens, cursor, colors
 │       ├── keyboard.rs      # PS/2 scancode handling, layout, modifiers
 │       ├── port.rs          # inb / outb I/O port primitives
+│       ├── gdt.rs           # Global Descriptor Table
+│       ├── stack.rs         # kernel stack hex-dump tool
+│       ├── shell.rs         # minimal debug shell
 │       └── f16_shim.rs      # soft-float shim
 ├── Cargo.toml
 ├── i386-unknown-none.json   # custom bare-metal target
@@ -93,15 +115,18 @@ make DEBUG=1 run    # rebuild in debug and boot
 ```
 
 This switches the Rust profile and links the matching
-`target/i386-unknown-none/<profile>/libkfs.a` into `kernel.bin`.
+`target/i386-unknown-none/<profile>/libkfs.a` into `kernel.bin`. The `dev`
+profile disables overflow and debug assertions, which otherwise route into the
+panic path and fault in this freestanding environment.
 
 ## How It Works
 
 1. **GRUB** finds the Multiboot2 header in `multiboot.asm` and loads the kernel
    into protected mode.
 2. **`boot.asm`** sets up a stack, zeroes `.bss`, and calls `kernel_main`.
-3. **`kernel_main`** clears the screen and enters a loop polling the keyboard,
-   printing typed characters and handling screen/color shortcuts.
+3. **`kernel_main`** installs the GDT at `0x800`, clears the screen, and enters a
+   loop polling the keyboard, feeding characters to the shell and handling
+   screen/color shortcuts.
 
 ## Acknowledgments
 
