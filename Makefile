@@ -27,7 +27,7 @@ run: $(ISO_OUT)
 	kvm -cpu host -cdrom $(ISO_OUT)
 
 clean:
-	rm -rf *.o $(KERNEL_BIN) $(ISO_OUT)
+	rm -rf $(ASM_OBJ) $(KERNEL_BIN) $(ISO_OUT)
 
 fclean: clean
 	rm -rf iso/boot/kernel.bin
@@ -42,7 +42,7 @@ re: fclean all
 
 $(RUST_LIB): $(RUST_SRC) Cargo.toml $(TARGET)
 	@echo "Building Rust crate (profile: $(BUILD_PROFILE))"
-	cargo +nightly build --target $(TARGET) $(CARGO_FLAGS)
+	cargo build --target $(TARGET) $(CARGO_FLAGS)
 
 # --- Link kernel -------------------------------------------------------------
 
