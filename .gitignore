@@ -3,3 +3,5 @@ target/
 *.o
 *.iso
 .vscode/
+source_dir/
+source.tar.gz
