@@ -5,6 +5,8 @@ mod vga_buffer;
 mod f16_shim;
 mod port;
 mod keyboard;
+mod gdt;
+mod stack;
 
 use core::panic::PanicInfo;
 
@@ -16,8 +18,10 @@ fn panic(info: &PanicInfo) -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kernel_main() -> ! {
-	vga_buffer::WRITER.lock().clear_screen();
-
+	gdt::init();
+    vga_buffer::WRITER.lock().clear_screen();
+	println!("Kernel stack dump:");
+    stack::print_stack(256);
     loop {
         if let Some(sc) = keyboard::poll_scancode() {
             let action = keyboard::KEYBOARD.lock().handle_scancode(sc);

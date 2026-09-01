@@ -8,7 +8,7 @@ extern __bss_end
 SECTION .bss
 align 16
 stack_bottom:
-    resb 32768          ; 32 KiB kernel stack
+    resb 65536          ; 64 KiB kernel stack
 stack_top:
 
 SECTION .text
