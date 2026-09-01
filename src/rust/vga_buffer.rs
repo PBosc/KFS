@@ -121,7 +121,7 @@ impl Writer {
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
             match byte {
-                32..=126 | b'\n' => self.write_byte(byte),
+                32..=126 | b'\n' | 0x08 => self.write_byte(byte),
                 _ => self.write_byte(0xfe),
             }
         }
@@ -130,6 +130,7 @@ impl Writer {
     pub fn write_byte(&mut self, byte: u8) {
         match byte {
             b'\n' => self.new_line(),
+			0x08 => self.backspace(),
             byte => {
                 if self.screens[self.active].column_position >= BUFFER_WIDTH {
                     self.new_line();
@@ -169,6 +170,19 @@ impl Writer {
             self.flush(); // whole active screen -> hardware
         }
         self.screens[active].column_position = 0;
+    }
+	
+	fn backspace(&mut self) {
+        let active = self.active;
+        if self.screens[active].column_position > 0 {
+            self.screens[active].column_position -= 1;
+            let row = self.screens[active].row_position;
+            let col = self.screens[active].column_position;
+            let color = self.screens[active].color_code;
+            let blank = ScreenChar { ascii_character: b' ', color_code: color };
+            self.screens[active].buffer[row][col] = blank;
+            self.vga.chars[row][col].write(blank);
+        }
     }
 
     pub fn clear_screen(&mut self) {
