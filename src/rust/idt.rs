@@ -11,69 +11,132 @@ pub struct InterruptStackFrame {
     pub ss: u32,
 }
 
-// no-error-code handlers
-extern "x86-interrupt" fn divide_by_zero_handler(_frame: InterruptStackFrame) {
-    panic_exception("DIVIDE BY ZERO");
+#[repr(C)]
+pub struct Registers {
+    // pushed by pusha, in the order they sit in memory (low to high)
+    pub edi: u32,
+    pub esi: u32,
+    pub ebp: u32,
+    pub esp_dummy: u32,   // pusha pushes esp but it's the pre-pusha value; not useful
+    pub ebx: u32,
+    pub edx: u32,
+    pub ecx: u32,
+    pub eax: u32,
+    // pushed by our stub
+    pub int_no: u32,
+    pub err_code: u32,
+    // pushed by the CPU
+    pub eip: u32,
+    pub cs: u32,
+    pub eflags: u32,
 }
 
-extern "x86-interrupt" fn invalid_opcode_handler(_frame: InterruptStackFrame) {
-    panic_exception("INVALID OPCODE");
+// macro for no-error-code ISR stubs
+macro_rules! isr_no_err {
+    ($stub:ident, $int_no:expr, $inner:ident) => {
+        #[unsafe(naked)]
+        extern "C" fn $stub() {
+            core::arch::naked_asm!(
+                "push 0",              // dummy error code
+                concat!("push ", stringify!($int_no)),
+                "pusha",
+                "push esp",
+                "call {inner}",
+                "add esp, 4",
+                "popa",
+                "add esp, 8",
+                "iretd",
+                inner = sym $inner,
+            );
+        }
+    };
 }
 
-extern "x86-interrupt" fn breakpoint_handler(_frame: InterruptStackFrame) {
-    println!("EXCEPTION: breakpoint");
-    // trap — CPU resumes after int3 automatically
+// macro for error-code ISR stubs (CPU already pushed the error code)
+macro_rules! isr_err {
+    ($stub:ident, $int_no:expr, $inner:ident) => {
+        #[unsafe(naked)]
+        extern "C" fn $stub() {
+            core::arch::naked_asm!(
+                // NO dummy push — CPU already pushed the real error code
+                concat!("push ", stringify!($int_no)),
+                "pusha",
+                "push esp",
+                "call {inner}",
+                "add esp, 4",
+                "popa",
+                "add esp, 8",          // removes int_no + error_code
+                "iretd",
+                inner = sym $inner,
+            );
+        }
+    };
 }
 
-// error-code handlers — note the extra u32 parameter
-extern "x86-interrupt" fn general_protection_handler(_frame: InterruptStackFrame, error_code: u32) {
-    println!("EXCEPTION: general protection fault, code={:#x}", error_code);
-    hang();
+extern "C" fn general_protection_inner(regs: *const Registers) {
+    let r = unsafe { &*regs };
+    kernel_panic_regs("GENERAL PROTECTION FAULT", r);
 }
-
-extern "x86-interrupt" fn page_fault_handler(_frame: InterruptStackFrame, error_code: u32) {
-    // read CR2 — the faulting address
+extern "C" fn page_fault_inner(regs: *const Registers) {
+    let r = unsafe { &*regs };
     let cr2: u32;
     unsafe { asm!("mov {}, cr2", out(reg) cr2); }
-    println!("EXCEPTION: page fault at {:#x}, code={:#x}", cr2, error_code);
-    hang();
+    println!("page fault at address {:#x}", cr2);
+    kernel_panic_regs("PAGE FAULT", r);
+}
+extern "C" fn divide_by_zero_inner(regs: *const Registers) {
+    let r = unsafe { &*regs };
+    kernel_panic_regs("DIVIDE BY ZERO", r);
+}
+extern "C" fn invalid_opcode_inner(regs: *const Registers) {
+    let r = unsafe { &*regs };
+    kernel_panic_regs("INVALID OPCODE", r);
+}
+extern "C" fn double_fault_inner(regs: *const Registers) {
+    let r = unsafe { &*regs };
+    kernel_panic_regs("DOUBLE FAULT", r);
 }
 
-// double fault: error code always 0, and it must NOT return (diverging)
-extern "x86-interrupt" fn double_fault_handler(_frame: InterruptStackFrame, _error_code: u32) -> ! {
-    println!("EXCEPTION: DOUBLE FAULT");
-    hang();
+extern "C" fn breakpoint_inner(_regs: *const Registers) {
+    // do nothing — just test the stub entry/exit path
 }
 
-extern "x86-interrupt" fn keyboard_handler(_frame: InterruptStackFrame) {
+#[unsafe(naked)]
+extern "C" fn isr_keyboard() {
+    unsafe {
+        core::arch::naked_asm!(
+            "push 0",           // dummy error code (keyboard has none)
+            "push 0x21",        // interrupt number
+            "pusha",            // push all GP registers
+            "push esp",         // pass pointer to the frame as arg
+            "call {handler}",   // call the Rust handler
+            "add esp, 4",       // pop the arg
+            "popa",             // restore GP registers
+            "add esp, 8",       // pop int_no + err_code
+            "iretd",            // return from interrupt
+            handler = sym keyboard_handler_inner,
+        );
+    }
+}
+
+extern "C" fn keyboard_handler_inner(regs: *const Registers) {
+    // now you have the full register frame
     let scancode = unsafe { crate::port::inb(0x60) };
     crate::keyboard::KEYBOARD.lock().push_scancode(scancode);
-    unsafe { crate::port::outb(0x20, 0x20); }   // EOI to master PIC
+    unsafe { crate::port::outb(0x20, 0x20); }
+    // regs available if you want them, e.g. for panic dumps
 }
+
+isr_no_err!(isr_divide_by_zero, 0, divide_by_zero_inner);
+isr_no_err!(isr_breakpoint, 3, breakpoint_inner);
+isr_no_err!(isr_invalid_opcode, 6, invalid_opcode_inner);
+isr_err!(isr_double_fault, 8, double_fault_inner);
+isr_err!(isr_general_protection, 13, general_protection_inner);
+isr_err!(isr_page_fault, 14, page_fault_inner);
 
 fn hang() -> ! {
     loop {
         unsafe { asm!("cli", "hlt"); }
-    }
-}
-
-fn panic_exception(name: &str) -> ! {
-    println!("EXCEPTION: {}", name);
-    hang();
-}
-
-fn set_handler_err(vector: usize, handler: extern "x86-interrupt" fn(InterruptStackFrame, u32)) {
-    let addr = handler as u32;
-    unsafe {
-        IDT[vector] = IdtEntry::new(addr, 0x8E);
-    }
-}
-
-// double fault is diverging (-> !), needs its own setter signature
-fn set_handler_diverging(vector: usize, handler: extern "x86-interrupt" fn(InterruptStackFrame, u32) -> !) {
-    let addr = handler as u32;
-    unsafe {
-        IDT[vector] = IdtEntry::new(addr, 0x8E);
     }
 }
 
@@ -116,25 +179,22 @@ struct IdtPtr {
     base: u32,    // address of the IDT
 }
 
-fn set_handler(vector: usize, handler: extern "x86-interrupt" fn(InterruptStackFrame)) {
+fn set_handler_naked(vector: usize, handler: extern "C" fn()) {
     let addr = handler as u32;
     unsafe {
-        IDT[vector] = IdtEntry::new(addr, 0x8E);  // present, ring 0, interrupt gate
+        IDT[vector] = IdtEntry::new(addr, 0x8E);
     }
 }
 
 pub fn init() {
 
-    // faults
-    set_handler(0, divide_by_zero_handler);
-    set_handler(3, breakpoint_handler);
-    set_handler(6, invalid_opcode_handler);
-    set_handler_diverging(8, double_fault_handler);
-    set_handler_err(13, general_protection_handler);
-    set_handler_err(14, page_fault_handler);
-
-    // interrupts
-    set_handler(0x21, keyboard_handler);
+    set_handler_naked(0, isr_divide_by_zero);
+    set_handler_naked(3, isr_breakpoint);
+    set_handler_naked(6, isr_invalid_opcode);
+    set_handler_naked(8, isr_double_fault);
+    set_handler_naked(13, isr_general_protection);
+    set_handler_naked(14, isr_page_fault);
+    set_handler_naked(0x21, isr_keyboard);
     unsafe {
         let idt_ptr = IdtPtr {
             limit: (core::mem::size_of::<[IdtEntry; IDT_SIZE]>() - 1) as u16,
@@ -148,4 +208,31 @@ unsafe fn load_idt(ptr: &IdtPtr) {
     unsafe {
         core::arch::asm!("lidt [{}]", in(reg) ptr, options(readonly, nostack, preserves_flags));
     }
+}
+
+pub fn kernel_panic(msg: &str) -> ! {
+    unsafe { asm!("cli"); }   // no interrupts during the dump
+    println!();
+    println!("=== KERNEL PANIC ===");
+    println!("{}", msg);
+    hang();
+}
+
+// register-dumping variant, called from exception inners that have the frame
+pub fn kernel_panic_regs(msg: &str, regs: &Registers) -> ! {
+    unsafe { asm!("cli"); }
+    println!();
+    println!("=== KERNEL PANIC ===");
+    println!("{}", msg);
+    println!("registers:");
+    println!("  eax={:#010x} ebx={:#010x} ecx={:#010x} edx={:#010x}",
+             regs.eax, regs.ebx, regs.ecx, regs.edx);
+    println!("  esi={:#010x} edi={:#010x} ebp={:#010x}",
+             regs.esi, regs.edi, regs.ebp);
+    println!("  eip={:#010x} cs={:#06x} eflags={:#010x}",
+             regs.eip, regs.cs, regs.eflags);
+    println!("  int_no={} err_code={:#x}", regs.int_no, regs.err_code);
+    crate::stack::print_stack(256);
+    println!("=== halted ===");
+    hang();
 }
