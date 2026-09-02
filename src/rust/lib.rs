@@ -10,6 +10,7 @@ mod gdt;
 mod stack;
 mod shell;
 mod idt;
+mod pic;
 
 use core::panic::PanicInfo;
 
@@ -23,29 +24,39 @@ fn panic(info: &PanicInfo) -> ! {
 pub extern "C" fn kernel_main() -> ! {
 	gdt::init();
 	idt::init();
+    pic::remap();
+    pic::unmask_irq1();
     vga_buffer::WRITER.lock().clear_screen();
-	println!("IDT loaded");
-	// deliberately trigger a breakpoint to prove the handler runs
-    unsafe { core::arch::asm!("int3"); }
-    println!("resumed after breakpoint");
+    unsafe { core::arch::asm!("sti"); }
 	let mut shell = shell::Shell::new();
     shell.prompt();
     loop {
-        if let Some(sc) = keyboard::poll_scancode() {
-            match keyboard::KEYBOARD.lock().handle_scancode(sc) {
-                keyboard::KeyAction::Char(c) => shell.on_char(c),
-                keyboard::KeyAction::SwitchScreen(i) => {
-                    vga_buffer::WRITER.lock().switch_screen(i);
-					shell.on_switch(i);
-                }
-                keyboard::KeyAction::SetForeground(c) => {
-                    vga_buffer::WRITER.lock().set_foreground(vga_buffer::Color::from_u8(c));
-                }
-                keyboard::KeyAction::SetBackground(c) => {
-                    vga_buffer::WRITER.lock().set_background(vga_buffer::Color::from_u8(c));
-                }
-                keyboard::KeyAction::None => {}
+        unsafe { core::arch::asm!("cli") };
+        let action = {
+            let mut kb = keyboard::KEYBOARD.lock();
+            match kb.pop_scancode() {
+                Some(sc) => kb.handle_scancode(sc),
+                None => keyboard::KeyAction::None,
             }
+        };  // lock dropped here
+        unsafe { core::arch::asm!("sti") };
+
+        // process OUTSIDE the lock and OUTSIDE cli — safe to take WRITER now
+        match action {
+            keyboard::KeyAction::Char(c) => shell.on_char(c),
+            keyboard::KeyAction::SwitchScreen(i) => {
+                vga_buffer::WRITER.lock().switch_screen(i);
+                shell.on_switch(i);
+            }
+            keyboard::KeyAction::SetForeground(c) => {
+                vga_buffer::WRITER.lock().set_foreground(vga_buffer::Color::from_u8(c));
+            }
+            keyboard::KeyAction::SetBackground(c) => {
+                vga_buffer::WRITER.lock().set_background(vga_buffer::Color::from_u8(c));
+            }
+            keyboard::KeyAction::None => {}
         }
+
+        unsafe { core::arch::asm!("hlt"); }
     }
 }

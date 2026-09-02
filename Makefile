@@ -25,7 +25,7 @@ all: $(KERNEL_BIN)
 iso: $(ISO_OUT)
 
 run: $(ISO_OUT)
-	kvm -cpu host -cdrom $(ISO_OUT)
+	qemu-kvm -cpu host -cdrom $(ISO_OUT)
 
 clean:
 	rm -rf $(ASM_OBJ) $(KERNEL_BIN) $(ISO_OUT)
@@ -62,15 +62,27 @@ define compile_from_source
     @rm -rf source_dir source.tar.gz
 	@wget -O source.tar.gz $(1)
     @mkdir source_dir && tar xvf source.tar.gz -C source_dir --strip-components=1
-    @cd source_dir && ./configure --prefix=$$HOME/.local && make -j && make install
+    @cd source_dir && ./configure --prefix=$$HOME/.local --disable-werror CFLAGS="-std=gnu17" && make -j && make install
     @rm -rf source_dir source.tar.gz
 endef
 
 install_requirements: uninstall_requirements
-	$(call compile_from_source,https://mirror.cyberbits.eu/gnu/bison/bison-3.8.tar.xz)
-	$(call compile_from_source,https://github.com/westes/flex/files/981163/flex-2.6.4.tar.gz)
-	$(call compile_from_source,ftp://ftp.gnu.org/gnu/grub/grub-2.06.tar.xz)
-	$(call compile_from_source,https://www.gnu.org/software/xorriso/xorriso-1.5.4.tar.gz)
+	$(call compile_from_source,https://ftp.gnu.org/gnu/bison/bison-3.8.tar.xz)
+	$(call compile_from_source,https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz)
+	$(call compile_grub,https://ftp.gnu.org/gnu/grub/grub-2.12.tar.xz)
+	$(call compile_from_source,https://ftp.gnu.org/gnu/xorriso/xorriso-1.5.4.tar.gz)
+
+define compile_grub
+	@rm -rf source_dir source.tar.xz
+	@wget -O source.tar.xz $(1)
+	@mkdir source_dir && tar xf source.tar.xz -C source_dir --strip-components=1
+	@touch source_dir/grub-core/extra_deps.lst
+	@cd source_dir && ./configure --prefix=$$HOME/.local --disable-werror --disable-nls CFLAGS="-std=gnu17 -Wno-error" CPPFLAGS="-Wno-error"
+	@cd source_dir && make
+	@cd source_dir && make install
+	@rm -rf source_dir source.tar.xz
+	@export PATH="$$HOME/.local/grub-build/grub-2.12:$PATH"
+endef
 
 uninstall_requirements:
 	@rm -rf source_dir source.tar.gz

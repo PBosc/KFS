@@ -54,7 +54,7 @@ impl Shell {
         match line {
             b"" => {}                          // empty line, do nothing
             b"help" => {
-                println!("commands: help, stack, halt, reboot");
+                println!("commands: help, stack, halt, reboot, gdt");
             }
             b"stack" => {
                 crate::stack::print_stack(256);
@@ -72,6 +72,9 @@ impl Shell {
                     crate::port::outb(0x64, 0xFE);
 					loop { core::arch::asm!("hlt"); }
                 }
+            }
+            b"gdt" => {
+                crate::gdt::read_gdtr();
             }
             _ => {
                 print!("unknown command: ");
