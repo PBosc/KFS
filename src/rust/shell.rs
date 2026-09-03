@@ -21,7 +21,7 @@ impl Shell {
     pub fn prompt(&self) {
         print!("> ");
     }
-    
+
     pub fn reprompt(&self) {
         self.prompt();
         for &b in &self.buffer[..self.len] {
@@ -87,6 +87,45 @@ impl Shell {
             b"sig" => {
                 crate::signal::SIGNALS.lock().schedule(1);
                 println!("signal 1 scheduled");
+            }
+            b"syscall" => {
+                // demo 1: getpid (syscall 1) — returns a value via eax
+                let pid: u32;
+                unsafe {
+                    core::arch::asm!(
+                        "int 0x80",
+                        in("eax") 1u32,        // syscall 1 = getpid
+                        lateout("eax") pid,    // return value comes back in eax
+                    );
+                }
+                println!("getpid() = {}", pid);
+            
+                // demo 2: write (syscall 0) — passes args via registers, prints
+                let msg = b"hello from int 0x80\n";
+                unsafe {
+                    core::arch::asm!(
+                        "int 0x80",
+                        in("eax") 0u32,        // syscall 0 = write
+                        in("ebx") 1u32,        // fd (ignored for now)
+                        in("ecx") msg.as_ptr() as u32,
+                        in("edx") msg.len() as u32,
+                        lateout("eax") _,      // clobbered return
+                    );
+                }
+                // demo 3: unknown syscall -> returns -1 (0xFFFFFFFF)
+                let ret: u32;
+                unsafe {
+                    core::arch::asm!(
+                        "int 0x80",
+                        in("eax") 99u32,       // no such syscall
+                        lateout("eax") ret,
+                    );
+                }
+                println!("syscall(99) = {:#x} (unknown -> -1)", ret);
+            }
+            b"azerty" => {
+                crate::keyboard::KEYBOARD.lock().toggle_layout();
+                println!("keyboard layout toggled");
             }
             _ => {
                 print!("unknown command: ");

@@ -11,10 +11,17 @@ pub enum KeyAction {
     None,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum Layout {
+    Qwerty,
+    Azerty,
+}
+
 pub struct Keyboard {
     shift: bool,
     caps: bool,
     ctrl: bool,
+    layout: Layout,
     queue: [u8; QUEUE_SIZE],
     head: usize,
     tail: usize,
@@ -26,12 +33,19 @@ impl Keyboard {
             shift: false,
             caps: false,
             ctrl: false,
+            layout: Layout::Qwerty,
             queue: [0; QUEUE_SIZE],
             head: 0,
             tail: 0,
         }
     }
 
+    pub fn toggle_layout(&mut self) {
+        self.layout = match self.layout {
+            Layout::Qwerty => Layout::Azerty,
+            Layout::Azerty => Layout::Qwerty,
+        };
+    }
 
     pub fn push_scancode(&mut self, sc: u8) {
         let next = (self.head + 1) % QUEUE_SIZE;
@@ -83,13 +97,14 @@ impl Keyboard {
                 }
             }
         }
-
-        let base = SCANCODE_SET1[scancode as usize];
-        if base == 0 {
-            return KeyAction::None;
-        }
+        let (base_table, shift_table): (&[u8; 128], &[u8; 128]) = match self.layout {
+            Layout::Qwerty => (&SCANCODE_SET1, &SCANCODE_SET1_SHIFT),
+            Layout::Azerty => (&SCANCODE_AZERTY, &SCANCODE_AZERTY_SHIFT),
+        };
+        let base = base_table[scancode as usize];
+        if base == 0 { return KeyAction::None; }
         let ch = if self.should_uppercase(base) {
-            SCANCODE_SET1_SHIFT[scancode as usize]
+            shift_table[scancode as usize]
         } else {
             base
         };
@@ -134,6 +149,37 @@ static SCANCODE_SET1_SHIFT: [u8; 128] = [
     b'"', b'~', 0,   b'|', b'Z', b'X', b'C', b'V',
     b'B', b'N', b'M', b'<', b'>', b'?', 0,   b'*',
     0,    b' ', 0,   0,   0,   0,   0,   0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+];
+
+// AZERTY base (unshifted). Number row gives symbols; digits need shift.
+static SCANCODE_AZERTY: [u8; 128] = [
+    0,    0x1B, b'&', b'\'', b'"', b'(', b'-', b'e',   // 0x00-07: 1..6 -> & é " ( - è  (é/è as ASCII stand-ins)
+    b'_', b'c', b'a', b')', b'=', 0,    0x08, b'\t',   // 0x08-0F
+    b'a', b'z', b'e', b'r', b't', b'y', b'u', b'i',    // 0x10-17: azerty top row (A Z E R T Y U I)
+    b'o', b'p', b'^', b'$', b'\n', 0,   b'q', b's',    // 0x18-1F: ... O P, then Q S (A-row shifted)
+    b'd', b'f', b'g', b'h', b'j', b'k', b'l', b'm',    // 0x20-27: D F G H J K L M
+    0,    0,    0,    b'*', b'w', b'x', b'c', b'v',    // 0x28-2F: ... W X C V (Z-row)
+    b'b', b'n', b',', b';', b':', b'!', 0,   b'*',     // 0x30-37
+    0,    b' ', 0,   0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+];
+
+static SCANCODE_AZERTY_SHIFT: [u8; 128] = [
+    0,    0x1B, b'1', b'2', b'3', b'4', b'5', b'6',    // shift on number row -> actual digits
+    b'7', b'8', b'9', b'0', b'~', b'+', 0x08, b'\t',
+    b'A', b'Z', b'E', b'R', b'T', b'Y', b'U', b'I',
+    b'O', b'P', 0,   0,   b'\n', 0,   b'Q', b'S',
+    b'D', b'F', b'G', b'H', b'J', b'K', b'L', b'M',
+    b'%', 0,    0,   b'*', b'W', b'X', b'C', b'V',
+    b'B', b'N', b'?', b'.', b'/', 0,   0,   b'*',
+    0,    b' ', 0,   0,0,0,0,0,
     0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,

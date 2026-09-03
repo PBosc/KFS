@@ -1,5 +1,6 @@
 use core::arch::asm;
 use crate::println;
+use crate::print;
 const _: () = assert!(core::mem::size_of::<IdtEntry>() == 8);
 
 #[repr(C)]
@@ -127,6 +128,51 @@ extern "C" fn keyboard_handler_inner(regs: *const Registers) {
     // regs available if you want them, e.g. for panic dumps
 }
 
+#[unsafe(naked)]
+extern "C" fn isr_syscall() {
+    core::arch::naked_asm!(
+        "push 0",              // dummy error code
+        "push 0x80",           // int number
+        "pusha",
+        "push esp",            // pointer to frame
+        "call {inner}",
+        "add esp, 4",
+        "popa",                // restores eax (now holds return value) to caller
+        "add esp, 8",
+        "iretd",
+        inner = sym syscall_inner,
+    );
+}
+
+extern "C" fn syscall_inner(regs: *mut Registers) {
+    let r = unsafe { &mut *regs };
+    let syscall_num = r.eax;
+    let arg1 = r.ebx;
+    let arg2 = r.ecx;
+    let arg3 = r.edx;
+
+    let ret: u32 = match syscall_num {
+        0 => sys_write(arg1, arg2, arg3),   // e.g. write
+        1 => sys_getpid(),                   // stub — returns fake pid
+        _ => 0xFFFFFFFF,                     // unknown syscall -> -1
+    };
+
+    r.eax = ret;   // return value goes back via eax after popa
+}
+
+fn sys_write(_fd: u32, ptr: u32, len: u32) -> u32 {
+    // dumbest possible: treat ptr as a byte string, print len bytes
+    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    for &b in bytes {
+        print!("{}", b as char);
+    }
+    len   // return bytes written
+}
+
+fn sys_getpid() -> u32 {
+    42   // no processes yet, return a placeholder
+}
+
 isr_no_err!(isr_divide_by_zero, 0, divide_by_zero_inner);
 isr_no_err!(isr_breakpoint, 3, breakpoint_inner);
 isr_no_err!(isr_invalid_opcode, 6, invalid_opcode_inner);
@@ -195,6 +241,7 @@ pub fn init() {
     set_handler_naked(13, isr_general_protection);
     set_handler_naked(14, isr_page_fault);
     set_handler_naked(0x21, isr_keyboard);
+    set_handler_naked(0x80, isr_syscall);
     unsafe {
         let idt_ptr = IdtPtr {
             limit: (core::mem::size_of::<[IdtEntry; IDT_SIZE]>() - 1) as u16,
