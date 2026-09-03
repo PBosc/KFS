@@ -21,6 +21,13 @@ impl Shell {
     pub fn prompt(&self) {
         print!("> ");
     }
+    
+    pub fn reprompt(&self) {
+        self.prompt();
+        for &b in &self.buffer[..self.len] {
+            print!("{}", b as char);
+        }
+    }
 
     // called for each character the keyboard produces
     pub fn on_char(&mut self, c: char) {
@@ -75,6 +82,11 @@ impl Shell {
             }
             b"gdt" => {
                 crate::gdt::read_gdtr();
+            }
+                // in shell dispatch:
+            b"sig" => {
+                crate::signal::SIGNALS.lock().schedule(1);
+                println!("signal 1 scheduled");
             }
             _ => {
                 print!("unknown command: ");
