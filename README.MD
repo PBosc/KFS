@@ -6,6 +6,14 @@ a VGA text-mode terminal with keyboard input, colors, multiple virtual screens,
 a Global Descriptor Table, interrupt handling (IDT, PIC, exceptions), a signal
 system, syscalls, and a small debug shell.
 
+## Project versions
+
+Each KFS milestone is tagged:
+
+- [kfs-1](https://github.com/pibosc/<repo>/tree/kfs-1) — boot, VGA, keyboard, screens
+- [kfs-2](https://github.com/pibosc/<repo>/tree/kfs-2) — GDT & stack
+- [kfs-4](https://github.com/pibosc/<repo>/tree/kfs-4) — interrupts, signals, syscalls
+
 ## Features
 
 ### Base
