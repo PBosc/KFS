@@ -10,9 +10,9 @@ system, syscalls, and a small debug shell.
 
 Each KFS milestone is tagged:
 
-- [kfs-1](https://github.com/pibosc/<repo>/tree/kfs-1) — boot, VGA, keyboard, screens
-- [kfs-2](https://github.com/pibosc/<repo>/tree/kfs-2) — GDT & stack
-- [kfs-4](https://github.com/pibosc/<repo>/tree/kfs-4) — interrupts, signals, syscalls
+- [kfs-1](https://github.com/PBosc/KFS/tree/kfs-1) — boot, VGA, keyboard, screens
+- [kfs-2](https://github.com/PBosc/KFS/tree/kfs-2) — GDT & stack
+- [kfs-4](https://github.com/PBosc/KFS/tree/kfs-4) — interrupts, signals, syscalls
 
 ## Features
 
